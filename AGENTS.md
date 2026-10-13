@@ -4,19 +4,19 @@
 
 Zellij WASM plugin that adds notification icons to tab names when panes need attention. Designed for Claude Code users running multiple sessions across tabs.
 
-**Flow:** External process → `zellij pipe --name "zellij-attention::EVENT::PANE_ID"` → plugin updates tab name → focus clears notification.
+**Flow:** External process → `zellij pipe --name "zellij-attention::EVENT::PANE_ID"` → plugin updates tab name → a `clear` event removes it (or focus, when `clear_on_focus` is on).
 
 ## Architecture
 
 - `src/main.rs` — Core plugin logic: event handling, tab renaming, pipe parsing, focus clearing
-- `src/config.rs` — User configuration parsing (enabled, waiting_icon, completed_icon)
+- `src/config.rs` — User configuration parsing (enabled, waiting_icon, executing_icon, completed_icon, clear_on_focus)
 - Build target: `wasm32-wasip1` (Zellij WASM plugin)
 
 ## Key Design Decisions
 
 - **Single global plugin instance** via `load_plugins` in `config.kdl` (no visible pane)
 - **Notification state:** `HashMap<u32, HashSet<NotificationType>>` — pane_id → notification set. Latest event **replaces** (no stacking per pane)
-- **Tab-level priority:** If any pane in a tab has Waiting, tab shows ⏳. Only shows ✓ if no Waiting exists.
+- **Tab-level priority:** Waiting (🟠) > Executing (⏳) > Completed (✅) across the panes of a tab.
 - **No position-keyed caches** — original tab names derived via `strip_icons()` at rename time, making tab reordering safe
 - **`rename_tab()` is 1-indexed** — Zellij API quirk, always pass `position + 1`
 - **`updating_tabs` flag** prevents re-entrancy from `rename_tab()` → `TabUpdate` → `update_tab_names()` loop

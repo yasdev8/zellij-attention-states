@@ -7,18 +7,26 @@ use std::collections::BTreeMap;
 pub struct NotificationConfig {
     /// Whether notifications are enabled
     pub enabled: bool,
-    /// Icon for waiting state (e.g., "⏳")
+    /// Icon for waiting state (needs user input, e.g. "🟠")
     pub waiting_icon: String,
-    /// Icon for completed state (e.g., "✓")
+    /// Icon for executing state (actively working, e.g. "⏳")
+    pub executing_icon: String,
+    /// Icon for completed state (e.g., "✅")
     pub completed_icon: String,
+    /// Whether focusing a pane clears its notification.
+    /// Off by default: icons reflect the live process state and are driven
+    /// by explicit pipe messages (waiting/executing/completed/clear) instead.
+    pub clear_on_focus: bool,
 }
 
 impl Default for NotificationConfig {
     fn default() -> Self {
         Self {
             enabled: true,
-            waiting_icon: "⏳".to_string(),
+            waiting_icon: "🟠".to_string(),
+            executing_icon: "⏳".to_string(),
             completed_icon: "✅".to_string(),
+            clear_on_focus: false,
         }
     }
 }
@@ -51,6 +59,22 @@ impl NotificationConfig {
             result.waiting_icon = icon.clone();
         }
 
+        // Parse executing_icon
+        if let Some(icon) = config.get("executing_icon") {
+            if icon.chars().count() > 4 {
+                eprintln!(
+                    "zellij-attention: Warning: executing_icon '{}' is longer than 4 chars, may not display well",
+                    icon
+                );
+            }
+            result.executing_icon = icon.clone();
+        }
+
+        // Parse clear_on_focus flag
+        if let Some(clear_on_focus) = config.get("clear_on_focus") {
+            result.clear_on_focus = clear_on_focus == "true";
+        }
+
         // Parse completed_icon
         if let Some(icon) = config.get("completed_icon") {
             if icon.chars().count() > 4 {
@@ -74,8 +98,10 @@ mod tests {
     fn test_default_config() {
         let config = NotificationConfig::default();
         assert!(config.enabled);
-        assert_eq!(config.waiting_icon, "⏳");
+        assert_eq!(config.waiting_icon, "🟠");
+        assert_eq!(config.executing_icon, "⏳");
         assert_eq!(config.completed_icon, "✅");
+        assert!(!config.clear_on_focus);
     }
 
     #[test]
@@ -84,7 +110,19 @@ mod tests {
         let config = NotificationConfig::from_configuration(&config_map);
         // Should use defaults
         assert!(config.enabled);
-        assert_eq!(config.waiting_icon, "⏳");
+        assert_eq!(config.waiting_icon, "🟠");
+        assert_eq!(config.executing_icon, "⏳");
+    }
+
+    #[test]
+    fn test_from_configuration_executing_and_clear_on_focus() {
+        let mut config_map = BTreeMap::new();
+        config_map.insert("executing_icon".to_string(), "🔄".to_string());
+        config_map.insert("clear_on_focus".to_string(), "true".to_string());
+
+        let config = NotificationConfig::from_configuration(&config_map);
+        assert_eq!(config.executing_icon, "🔄");
+        assert!(config.clear_on_focus);
     }
 
     #[test]

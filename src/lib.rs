@@ -66,6 +66,15 @@ impl State {
         false
     }
 
+    /// Removes all notifications for a pane regardless of focus.
+    /// Returns true if anything was removed. Does NOT rename tabs;
+    /// callers should run update_tab_names() afterward.
+    pub(crate) fn clear_pane(&mut self, pane_id: u32) -> bool {
+        let removed = self.notification_state.remove(&pane_id).is_some();
+        self.notified_tab_names.remove(&pane_id);
+        removed
+    }
+
     /// Removes notification entries for pane IDs that no longer exist.
     /// Returns true if any stale entries were removed.
     pub(crate) fn clean_stale_notifications(&mut self) -> bool {
@@ -106,15 +115,23 @@ impl State {
 
     /// Checks if a tab name ends with one of our notification icon suffixes.
     pub(crate) fn tab_name_has_icon(&self, name: &str) -> bool {
-        let waiting_suffix = format!(" {}", self.config.waiting_icon);
-        let completed_suffix = format!(" {}", self.config.completed_icon);
-        name.ends_with(&waiting_suffix) || name.ends_with(&completed_suffix)
+        [
+            &self.config.waiting_icon,
+            &self.config.executing_icon,
+            &self.config.completed_icon,
+        ]
+        .iter()
+        .any(|icon| name.ends_with(&format!(" {}", icon)))
     }
 
     /// Strips notification icon suffixes from a tab name.
     pub(crate) fn strip_icons(&self, name: &str) -> String {
         let mut result = name.to_string();
-        for icon in [&self.config.waiting_icon, &self.config.completed_icon] {
+        for icon in [
+            &self.config.waiting_icon,
+            &self.config.executing_icon,
+            &self.config.completed_icon,
+        ] {
             let suffix = format!(" {}", icon);
             while result.ends_with(&suffix) {
                 result.truncate(result.len() - suffix.len());
@@ -144,6 +161,8 @@ impl State {
         let tab = self.tabs.iter().find(|t| t.position == tab_position);
         let tab_base_name = tab.map(|t| self.strip_icons(&t.name));
         let panes = self.panes.panes.get(&tab_position)?;
+        // Priority across panes in the tab: Waiting > Executing > Completed.
+        let mut has_executing = false;
         let mut has_completed = false;
 
         for pane in panes {
@@ -167,13 +186,18 @@ impl State {
                 if notifications.contains(&NotificationType::Waiting) {
                     return Some(NotificationType::Waiting);
                 }
+                if notifications.contains(&NotificationType::Executing) {
+                    has_executing = true;
+                }
                 if notifications.contains(&NotificationType::Completed) {
                     has_completed = true;
                 }
             }
         }
 
-        if has_completed {
+        if has_executing {
+            Some(NotificationType::Executing)
+        } else if has_completed {
             Some(NotificationType::Completed)
         } else {
             None
@@ -222,6 +246,7 @@ impl State {
             if let Some(notification) = self.get_tab_notification_state(tab.position) {
                 let icon = match notification {
                     NotificationType::Waiting => &self.config.waiting_icon,
+                    NotificationType::Executing => &self.config.executing_icon,
                     NotificationType::Completed => &self.config.completed_icon,
                 };
                 let new_name = format!("{} {}", base_name, icon);
@@ -301,14 +326,18 @@ impl ZellijPlugin for State {
             }
             Event::TabUpdate(tab_info) => {
                 self.tabs = tab_info;
-                self.check_and_clear_focus();
+                if self.config.clear_on_focus {
+                    self.check_and_clear_focus();
+                }
                 self.clean_stale_notifications();
                 self.update_tab_names();
                 false
             }
             Event::PaneUpdate(pane_manifest) => {
                 self.panes = pane_manifest;
-                self.check_and_clear_focus();
+                if self.config.clear_on_focus {
+                    self.check_and_clear_focus();
+                }
                 self.clean_stale_notifications();
                 self.update_tab_names();
                 false
@@ -357,8 +386,19 @@ impl ZellijPlugin for State {
             return false;
         };
 
+        // "clear" removes any notification for this pane regardless of focus
+        // (e.g. when the Claude Code session ends — back to no icon).
+        if event_type.eq_ignore_ascii_case("clear") {
+            unblock_cli_pipe_input(&pipe_message.name);
+            if self.clear_pane(pane_id) {
+                self.update_tab_names();
+            }
+            return false;
+        }
+
         let notification_type = match event_type.to_lowercase().as_str() {
             "waiting" => NotificationType::Waiting,
+            "executing" | "running" => NotificationType::Executing,
             "completed" => NotificationType::Completed,
             unknown => {
                 eprintln!("zellij-attention: Unknown event type: {}\n", unknown);

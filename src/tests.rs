@@ -43,8 +43,9 @@ fn add_notification(state: &mut State, pane_id: u32, ntype: NotificationType) {
 #[test]
 fn test_strip_icons() {
     let state = State::default();
-    assert_eq!(state.strip_icons("Tab 1 ⏳"), "Tab 1");
-    assert_eq!(state.strip_icons("Tab 1 ✅"), "Tab 1");
+    assert_eq!(state.strip_icons("Tab 1 🟠"), "Tab 1"); // waiting
+    assert_eq!(state.strip_icons("Tab 1 ⏳"), "Tab 1"); // executing
+    assert_eq!(state.strip_icons("Tab 1 ✅"), "Tab 1"); // completed
     assert_eq!(state.strip_icons("Tab 1 ⏳ ⏳"), "Tab 1");
     assert_eq!(state.strip_icons("Tab 1"), "Tab 1");
     assert_eq!(state.strip_icons(""), "");
@@ -53,10 +54,50 @@ fn test_strip_icons() {
 #[test]
 fn test_tab_name_has_icon() {
     let state = State::default();
+    assert!(state.tab_name_has_icon("Tab 1 🟠"));
     assert!(state.tab_name_has_icon("Tab 1 ⏳"));
     assert!(state.tab_name_has_icon("Tab 1 ✅"));
     assert!(!state.tab_name_has_icon("Tab 1"));
     assert!(!state.tab_name_has_icon("⏳ Tab 1")); // icon not at end
+}
+
+#[test]
+fn test_executing_state_and_priority() {
+    let mut state = State::default();
+    state.panes = make_manifest(vec![
+        (0, vec![make_pane(1, false, true)]),
+        (1, vec![make_pane(2, false, false), make_pane(3, false, false)]),
+    ]);
+
+    // Single executing pane → Executing
+    add_notification(&mut state, 1, NotificationType::Executing);
+    assert_eq!(
+        state.get_tab_notification_state(0),
+        Some(NotificationType::Executing)
+    );
+
+    // Tab with both Executing and Waiting → Waiting wins (needs attention)
+    add_notification(&mut state, 2, NotificationType::Executing);
+    add_notification(&mut state, 3, NotificationType::Waiting);
+    assert_eq!(
+        state.get_tab_notification_state(1),
+        Some(NotificationType::Waiting)
+    );
+}
+
+#[test]
+fn test_clear_pane_removes_notification() {
+    let mut state = State::default();
+    add_notification(&mut state, 7, NotificationType::Waiting);
+    state.notified_tab_names.insert(7, "Work".to_string());
+
+    // Clears regardless of focus (no tabs/panes set here)
+    assert!(state.clear_pane(7));
+    assert!(state.notification_state.is_empty());
+    assert!(!state.notified_tab_names.contains_key(&7));
+
+    // Clearing an already-clean pane is a no-op
+    assert!(!state.clear_pane(7));
 }
 
 #[test]
