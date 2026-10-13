@@ -2,6 +2,8 @@
 
 Know which Zellij tab needs your attention — without checking each one.
 
+> **Fork of [KiryuuLight/zellij-attention](https://github.com/KiryuuLight/zellij-attention)** that adds an ⏳ executing state and a `clear` event, so the tab icon follows what Claude Code is doing: working, waiting for a permission, done. See upstream issue [#9](https://github.com/KiryuuLight/zellij-attention/issues/9).
+
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT"></a>
 </p>
@@ -25,9 +27,11 @@ Download the plugin and add it to your Zellij config:
 
 ```bash
 mkdir -p ~/.config/zellij/plugins
-curl -L https://github.com/KiryuuLight/zellij-attention/releases/latest/download/zellij-attention.wasm \
+curl -L https://github.com/yasdev8/zellij-attention-states/releases/latest/download/zellij-attention.wasm \
   -o ~/.config/zellij/plugins/zellij-attention.wasm
 ```
+
+Do not replace it later with the upstream release: it does not have the executing state nor the `clear` event.
 
 Add to `~/.config/zellij/config.kdl`:
 
@@ -44,7 +48,9 @@ load_plugins {
 }
 ```
 
-The plugin loads in the background with no visible pane — it won't consume any screen space.
+The plugin loads in the background with no visible pane — it won't consume any screen space. If it does not load, replace `~` with your absolute home path (e.g. `file:/Users/me/.config/zellij/plugins/zellij-attention.wasm`).
+
+The plugin starts with the next Zellij session, which asks once to grant its permissions. Claude Code hooks (below) apply to Claude sessions started after you add them.
 
 ## Quick Start
 
